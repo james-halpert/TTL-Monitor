@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DNS TTL Monitor</title>
+    <style>
+        body {
+            background-color: #2b2b2b;
+            color: #e0e0e0;
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 20px;
+        }
+        input, select, button {
+            background-color: #444;
+            color: #e0e0e0;
+            border: 1px solid #666;
+            padding: 10px;
+            margin: 5px;
+            border-radius: 5px;
+        }
+        button {
+            cursor: pointer;
+            background-color: #007bff;
+            border: none;
+            padding: 10px 15px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        #log_output {
+            background-color: #333;
+            border: 1px solid #555;
+            padding: 10px;
+            margin-top: 15px;
+            text-align: left;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        #toast {
+            visibility: hidden;
+            min-width: 250px;
+            background-color: #444;
+            color: #e0e0e0;
+            text-align: center;
+            border-radius: 5px;
+            padding: 16px;
+            position: fixed;
+            z-index: 1;
+            left: 50%;
+            bottom: 30px;
+            font-size: 17px;
+            transform: translateX(-50%);
+        }
+        #toast.show {
+            visibility: visible;
+            animation: fadein 0.5s, fadeout 0.5s 2.5s;
+        }
+        @keyframes fadein {
+            from {bottom: 0; opacity: 0;}
+            to {bottom: 30px; opacity: 1;}
+        }
+        @keyframes fadeout {
+            from {bottom: 30px; opacity: 1;}
+            to {bottom: 0; opacity: 0;}
+        }
+    </style>
+    <script>
+        let startSound = new Audio("https://www.myinstants.com/media/sounds/notification-sound.mp3");
+        let changeSound = new Audio("https://www.myinstants.com/media/sounds/alarm-frenzy.mp3");
+        let lastLogLength = 0; // Track previous log length to prevent duplicate sound alerts
+
+        function showToast(message) {
+            let toast = document.getElementById("toast");
+            toast.innerText = message;
+            toast.className = "show";
+            setTimeout(() => { toast.className = toast.className.replace("show", ""); }, 3000);
+        }
+
+        function startMonitoring() {
+            let domain = document.getElementById("domain").value;
+            let recordType = document.getElementById("record_type").value;
+            let dnsResolver = document.getElementById("dns_resolver").value || "8.8.8.8";
+
+            fetch("/start_monitor", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: `domain=${domain}&record_type=${recordType}&dns_resolver=${dnsResolver}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.toast) {
+                    showToast(data.message);
+                }
+                if (data.hide_button) {
+                    document.getElementById("start_btn").style.display = "none"; // Hide button
+                }
+                startLogUpdates(domain);
+            })
+            .catch(error => console.error("Error:", error));
+        }
+
+        function startLogUpdates(domain) {
+            let lastLogText = ""; // Track previous log output
+            setInterval(() => {
+                fetch(`/logs/${domain}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        let logContainer = document.getElementById("log_output");
+                        let logs = data.logs || [];
+
+                        // Only update UI if logs have actually changed
+                        let newLogText = logs
+                            .map(log => log.includes("SOUND_ALERT") ? "" : log)
+                            .filter(log => log.trim() !== "")
+                            .join("<br>");
+
+                        if (newLogText !== lastLogText) {
+                            logContainer.innerHTML = newLogText;
+                            lastLogText = newLogText; // Store new log state
+
+                            // Play sounds only if new log entries appear
+                            logs.forEach(log => {
+                                if (log === "SOUND_ALERT_START") {
+                                    startSound.play();
+                                }
+                                if (log === "SOUND_ALERT_CHANGE") {
+                                    changeSound.play();
+                                }
+                            });
+                        }
+                    })
+                    .catch(error => console.error("Error:", error));
+            }, 15000); // **Now refreshes every 15 seconds instead of 5**
+        }
+
+
+    </script>
+</head>
+<body>
+    <h1>DNS TTL Monitor</h1>
+    <label>Domain:</label>
+    <input type="text" id="domain" placeholder="e.g., sub.example.com"><br><br>
+
+    <label>Record Type:</label>
+    <select id="record_type">
+        <option value="A">A</option>
+        <option value="CNAME">CNAME</option>
+        <option value="MX">MX</option>
+        <option value="TXT">TXT</option>
+        <option value="NS">NS</option>
+        <option value="AAAA">AAAA</option>
+    </select><br><br>
+
+    <label>DNS Resolver:</label>
+    <input type="text" id="dns_resolver" placeholder="Default: 8.8.8.8"><br><br>
+
+    <button id="start_btn" onclick="startMonitoring()">Start Monitoring</button>
+
+    <div id="toast"></div>
+
+    <h2>Logs:</h2>
+    <div id="log_output"></div>
+</body>
+</html>
